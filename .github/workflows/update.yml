@@ -1,0 +1,82 @@
+name: update
+# Every Monday the lists are read against their sources (cmd/fetch). A difference becomes one pull request,
+# opened or updated, listing every address added and removed with its source. Nothing merges by itself: main
+# takes it only with a code owner's review. A source that cannot be read, or lists a fifth fewer addresses
+# than its file, fails the run and opens an issue. Every run that read all three sources writes
+# "checked <day> <digest>" to the status branch, the digest that of the files the sources give now: readers
+# see whether the files of main are those. GitHub stops a schedule after 60 days without activity in the
+# repository; each run asks it to keep this one on, and a stale status shows if it stopped anyway.
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+concurrency:
+  group: update
+  cancel-in-progress: false
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Read the sources
+        run: go run ./cmd/fetch -summary "$RUNNER_TEMP/summary.md"
+      - name: Write the status
+        run: |
+          day=$(date -u +%F)
+          digest=$(cat ofac.txt uk.txt eu.txt | sha256sum | cut -d' ' -f1)
+          dir="$RUNNER_TEMP/status"
+          if git fetch --depth=1 origin status; then
+            git worktree add --detach "$dir" FETCH_HEAD
+          else
+            git worktree add --orphan -b status "$dir"
+          fi
+          echo "checked $day $digest" > "$dir/checked"
+          git -C "$dir" add checked
+          git -C "$dir" -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "chore: checked $day"
+          git -C "$dir" push origin HEAD:status
+          gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/update.yml/enable"
+      - name: Propose the changes
+        run: |
+          if git diff --quiet -- ofac.txt uk.txt eu.txt; then
+            echo "the lists are as their sources give them"
+            exit 0
+          fi
+          day=$(date -u +%F)
+          title="chore: the lists as their sources give them on $day"
+          git switch -C update/lists
+          git add ofac.txt uk.txt eu.txt
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "$title"
+          git push --force origin update/lists
+          if [ "$(gh pr list --head update/lists --state open --json number --jq length)" != "0" ]; then
+            gh pr edit update/lists --title "$title" --body-file "$RUNNER_TEMP/summary.md"
+          elif ! gh pr create --head update/lists --base main --title "$title" --body-file "$RUNNER_TEMP/summary.md"; then
+            # The organisation may not let workflows open pull requests: the change waits on its branch, and an
+            # issue says where.
+            compare="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/main...update/lists"
+            { echo "The weekly check found the lists differ from their sources, and could not open a pull request."
+              echo "Open one from $compare and review it."
+              echo
+              cat "$RUNNER_TEMP/summary.md"; } > "$RUNNER_TEMP/issue.md"
+            gh issue create --title "$title" --body-file "$RUNNER_TEMP/issue.md"
+            exit 1
+          fi
+      - name: Open an issue
+        if: failure()
+        run: |
+          title="The weekly check of the lists failed"
+          if [ "$(gh issue list --state open --search "in:title \"$title\"" --json number --jq length)" = "0" ]; then
+            gh issue create --title "$title" --body "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. Readers keep the lists they have until the check runs again."
+          fi
