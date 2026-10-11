@@ -21,7 +21,7 @@ per line: `0x` and 40 lower-case hex digits, sorted, each once, which may end in
 any of this, or lists no address, is no list: a reader takes a file whole or not at all.
 
 The Go package `github.com/Ninsei-Labs/denylist` reads the files (`Parse`, `Read`), names them (`Files`)
-and their status (`ParseChecked`, `Digest`).
+and their status (`ParseChecked`, `Digest`, `Status.Vouches`).
 
 ## Reading the lists
 
@@ -29,7 +29,10 @@ and their status (`ParseChecked`, `Digest`).
 - The status of the weekly check: `https://raw.githubusercontent.com/Ninsei-Labs/denylist/status/checked`,
   one line, `checked YYYY-MM-DD <digest>`: the day of the last check that read all three sources, and the
   SHA-256 of the three files as the sources gave them then (`cat ofac.txt uk.txt eu.txt | sha256sum`). When
-  it is not the digest of the files on main, the sources have changed and the change awaits review.
+  it is not the digest of the files on main, the sources have changed and the change awaits review; the line
+  then goes on ` main YYYY-MM-DD <digest>`, the last day main's files were the sources' own, and their
+  digest. So the check vouches for the files on main as of that day while their update awaits review
+  (`Status.Vouches`).
 
 A reader should take the three files whole, refuse a file that does not read, keep the lists it had when a
 read fails, and treat lists whose last check is old as stale: the check runs every week.
