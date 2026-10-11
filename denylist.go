@@ -138,16 +138,81 @@ func Digest(files ...[]byte) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// ParseChecked reads the status branch's checked file, "checked YYYY-MM-DD <digest>": the day of the last
-// check against the sources, and the digest of the files that check read.
-func ParseChecked(b []byte) (time.Time, string, error) {
+// Status is what the status branch's checked file says of the last check against the sources:
+// "checked YYYY-MM-DD <digest>", the day of the check and the digest of the files the sources gave that day.
+// While main's files are not those (the check's pull request is open), the line goes on
+// " main YYYY-MM-DD <digest>": the last day main's files were the check's own, and their digest.
+type Status struct {
+	Day        time.Time
+	Digest     string
+	MainDay    time.Time // zero while main's files are the check's own
+	MainDigest string
+}
+
+// ParseChecked reads the checked file; a line in any other form is no status.
+func ParseChecked(b []byte) (Status, error) {
 	f := strings.Fields(string(b))
-	if len(f) != 3 || f[0] != "checked" || len(f[2]) != 64 || strings.Trim(f[2], "0123456789abcdef") != "" {
-		return time.Time{}, "", fmt.Errorf("%q is not \"checked YYYY-MM-DD <digest>\"", strings.TrimSpace(string(b)))
+	bad := fmt.Errorf("%q is not \"checked YYYY-MM-DD <digest>\", with \" main YYYY-MM-DD <digest>\" or not",
+		strings.TrimSpace(string(b)))
+	if (len(f) != 3 && len(f) != 6) || f[0] != "checked" || len(f) == 6 && f[3] != "main" {
+		return Status{}, bad
 	}
-	day, err := time.Parse(time.DateOnly, f[1])
+	var s Status
+	var err error
+	if s.Day, s.Digest, err = dayDigest(f[1], f[2]); err != nil {
+		return Status{}, err
+	}
+	if len(f) == 6 {
+		if s.MainDay, s.MainDigest, err = dayDigest(f[4], f[5]); err != nil {
+			return Status{}, err
+		}
+	}
+	return s, nil
+}
+
+func dayDigest(d, digest string) (time.Time, string, error) {
+	if len(digest) != 64 || strings.Trim(digest, "0123456789abcdef") != "" {
+		return time.Time{}, "", fmt.Errorf("%q is not a digest: 64 lower-case hex digits", digest)
+	}
+	day, err := time.Parse(time.DateOnly, d)
 	if err != nil {
-		return time.Time{}, "", fmt.Errorf("the day of the check %q: %w", f[1], err)
+		return time.Time{}, "", fmt.Errorf("the day %q: %w", d, err)
 	}
-	return day, f[2], nil
+	return day, digest, nil
+}
+
+// String is the status as the checked file holds it, without the newline.
+func (s Status) String() string {
+	line := "checked " + s.Day.Format(time.DateOnly) + " " + s.Digest
+	if s.MainDigest != "" {
+		line += " main " + s.MainDay.Format(time.DateOnly) + " " + s.MainDigest
+	}
+	return line
+}
+
+// Vouches is the newest day a check vouched for files of digest d: the check's own day when they are the
+// files the sources gave it, the last day main's files were the check's own when they are main's, and no day
+// (ok false) for any other files.
+func (s Status) Vouches(d string) (day time.Time, ok bool) {
+	switch {
+	case d == "":
+	case d == s.Digest:
+		return s.Day, true
+	case d == s.MainDigest:
+		return s.MainDay, true
+	}
+	return time.Time{}, false
+}
+
+// Next is the status a check on day writes, the sources giving files of digest and main holding files of
+// mainDigest: while those differ, the last day main's files were vouched for, carried from prev while they
+// are the same files.
+func Next(prev Status, day time.Time, digest, mainDigest string) Status {
+	s := Status{Day: day, Digest: digest}
+	if mainDigest != digest {
+		if d, ok := prev.Vouches(mainDigest); ok {
+			s.MainDay, s.MainDigest = d, mainDigest
+		}
+	}
+	return s
 }

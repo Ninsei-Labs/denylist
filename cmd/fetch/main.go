@@ -4,7 +4,9 @@
 // note it had (the designation it comes from, kept by hand when a change is reviewed); a new one is noted
 // with the day it was found. With -summary it writes, as Markdown, every address added and removed with its
 // source, the body of the pull request the weekly workflow opens. With -check it writes nothing and fails
-// when a list differs from its source.
+// when a list differs from its source. With -status it reads no source: it writes the status of today's check
+// to the file named (denylist.Next), from the files in -dir, main's digest given with -main, and the status
+// the file held.
 //
 // A source that cannot be read, reads in a form other than the one expected, or lists a fifth fewer
 // addresses than the file holds fails the run: it is never taken for a list of fewer or no addresses.
@@ -35,7 +37,16 @@ func main() {
 	check := flag.Bool("check", false, "write nothing; fail when a list differs from its source")
 	dir := flag.String("dir", ".", "the directory of the list files")
 	summary := flag.String("summary", "", "write every change, as Markdown, to this file")
+	status := flag.String("status", "", "write the status of today's check to this file, reading no source")
+	mainDigest := flag.String("main", "", "with -status: the digest of main's list files")
 	flag.Parse()
+	if *status != "" {
+		if err := writeStatus(*status, *dir, *mainDigest, time.Now().UTC()); err != nil {
+			fmt.Fprintln(os.Stderr, "fetch: "+err.Error())
+			os.Exit(1)
+		}
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	changes, err := run(ctx, *dir, *check, time.Now().UTC(), os.Stdout)
@@ -53,6 +64,29 @@ func main() {
 		fmt.Println("the lists differ from their sources: run go run ./cmd/fetch and propose the change")
 		os.Exit(1)
 	}
+}
+
+// writeStatus writes the status of a check on the day of now to path: the digest of the list files in dir, as
+// the sources gave them, and while main's (mainDigest) differ, the last day those were vouched for, carried
+// from the status path held. A status that cannot be read carries nothing.
+func writeStatus(path, dir, mainDigest string, now time.Time) error {
+	if len(mainDigest) != 64 || strings.Trim(mainDigest, "0123456789abcdef") != "" {
+		return fmt.Errorf("-main %q is not a digest", mainDigest)
+	}
+	var files [][]byte
+	for _, name := range denylist.Files {
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			return err
+		}
+		files = append(files, b)
+	}
+	var prev denylist.Status
+	if b, err := os.ReadFile(path); err == nil {
+		prev, _ = denylist.ParseChecked(b)
+	}
+	day := now.UTC().Truncate(24 * time.Hour)
+	return os.WriteFile(path, []byte(denylist.Next(prev, day, denylist.Digest(files...), mainDigest).String()+"\n"), 0o644)
 }
 
 // change is what a source holds now against its file: the addresses added, with their notes, and removed.

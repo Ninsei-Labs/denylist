@@ -102,18 +102,68 @@ func FuzzParse(f *testing.F) {
 	})
 }
 
-// The status branch's file says the day of the last check and the digest of the files it read, and nothing
-// else reads as one.
+// The status branch's file says the day of the last check and the digest of the files it read, and, while
+// main's files are not those, the last day they were and their digest; nothing else reads as one. Each reads
+// back as it was written.
 func TestTheCheckedFileGivesItsDayAndDigest(t *testing.T) {
-	d := strings.Repeat("ab", 32)
-	if day, digest, err := ParseChecked([]byte("checked 2026-10-11 " + d + "\n")); err != nil || digest != d ||
-		!day.Equal(time.Date(2026, 10, 11, 0, 0, 0, 0, time.UTC)) {
-		t.Fatalf("%v %q %v", day, digest, err)
+	d, m := strings.Repeat("ab", 32), strings.Repeat("cd", 32)
+	day := func(s string) time.Time { v, _ := time.Parse(time.DateOnly, s); return v }
+	for _, c := range []struct {
+		line string
+		want Status
+	}{
+		{"checked 2026-10-11 " + d + "\n", Status{Day: day("2026-10-11"), Digest: d}},
+		{"checked 2026-10-18 " + d + " main 2026-10-11 " + m + "\n", Status{Day: day("2026-10-18"), Digest: d, MainDay: day("2026-10-11"),
+			MainDigest: m}},
+	} {
+		s, err := ParseChecked([]byte(c.line))
+		if err != nil || s != c.want || s.String()+"\n" != c.line {
+			t.Errorf("%q: %+v, %v; written back %q", c.line, s, err, s.String())
+		}
 	}
 	for _, bad := range []string{"", "checked 2026-10-11", "checked 11 Oct " + d, "checked 2026-10-11 " + d[:63],
-		"checked 2026-10-11 " + strings.ToUpper(d), "Checked 2026-10-11 " + d, "checked 2026-10-11 " + d + " more"} {
-		if _, _, err := ParseChecked([]byte(bad)); err == nil {
+		"checked 2026-10-11 " + strings.ToUpper(d), "Checked 2026-10-11 " + d, "checked 2026-10-11 " + d + " more",
+		"checked 2026-10-18 " + d + " main 2026-10-11", "checked 2026-10-18 " + d + " since 2026-10-11 " + m,
+		"checked 2026-10-18 " + d + " main 11 Oct " + m, "checked 2026-10-18 " + d + " main 2026-10-11 " + m[:63],
+		"checked 2026-10-18 " + d + " main 2026-10-11 " + m + " more"} {
+		if _, err := ParseChecked([]byte(bad)); err == nil {
 			t.Errorf("%q read as a status", bad)
+		}
+	}
+}
+
+// Each week's status vouches for main's files on the newest day they were the sources' own, whatever pull
+// request is open. Weeks of made-up digests: a check finds main's A; one finds B (the pull request opens:
+// main's A vouched for on the first week); one finds C while it is open (still the first week); main is set
+// to B by hand while the pull request proposes C (no status at hand vouches for B: each keeps only the last
+// day main's own files were the sources'), then to X, which no check found; the pull request is merged and
+// the check finds main's C. A reader holding a set of files takes the day Vouches gives, or none.
+func TestEachCheckVouchesForMainsFilesOnTheLastDayTheyWereTheSources(t *testing.T) {
+	week := func(n int) time.Time { return time.Date(2026, 10, 5+7*n, 0, 0, 0, 0, time.UTC) }
+	A, B, C, X := strings.Repeat("a", 64), strings.Repeat("b", 64), strings.Repeat("c", 64), strings.Repeat("d", 64)
+	var s Status
+	for i, c := range []struct {
+		sources, main string
+		vouched       map[string]int // digest to the week that vouches for it; absent: none
+	}{
+		{A, A, map[string]int{A: 1}},
+		{B, A, map[string]int{B: 2, A: 1}},
+		{C, A, map[string]int{C: 3, A: 1}},
+		{C, B, map[string]int{C: 4}},
+		{C, X, map[string]int{C: 5}},
+		{C, C, map[string]int{C: 6}},
+	} {
+		s = Next(s, week(i+1), c.sources, c.main)
+		back, err := ParseChecked([]byte(s.String()))
+		if err != nil || back != s {
+			t.Fatalf("week %d: %q read back as %+v, %v", i+1, s.String(), back, err)
+		}
+		for _, d := range []string{A, B, C, X} {
+			day, ok := s.Vouches(d)
+			want, vouched := c.vouched[d]
+			if ok != vouched || ok && !day.Equal(week(want)) {
+				t.Errorf("week %d (%q): files %.1s vouched for on %v (%v), want week %d (%v)", i+1, s.String(), d, day, ok, want, vouched)
+			}
 		}
 	}
 }
