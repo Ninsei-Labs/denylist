@@ -26,7 +26,7 @@ type Source struct {
 
 // Files are the lists, in the order readers take them. A list is added here, its reader in cmd/fetch and
 // its row and notice line in the README, together.
-var Files = []string{"ofac.txt", "uk.txt", "eu.txt"}
+var Files = []string{"ofac.txt", "uk.txt", "eu.txt", "il.txt"}
 
 // Core are the files the status digest covers: the three lists. Naming them here, apart from Files, keeps a
 // digest meaning the same thing however many lists the repository grows (cat ofac.txt uk.txt eu.txt |

@@ -9,6 +9,7 @@ one source for makers, the site and any interface on the SDK.
 | `ofac.txt` | OFAC's SDN list (U.S. Department of the Treasury) | every "Digital Currency Address" of any coin whose value is an address in EVM form, with the entries that list it |
 | `uk.txt` | The UK Sanctions List (FCDO) | the addresses in EVM form its designations give in free text, each noted with its designation by hand |
 | `eu.txt` | The EU's consolidated list of financial sanctions | the addresses in EVM form its entries give in free text, each noted with its entry by hand |
+| `il.txt` | Israel's NBCTF (Ministry of Defense), via OpenSanctions' `il_mod_crypto` dataset | every `CryptoWallet` whose `publicKey` is an address in EVM form, noted with the target that holds it |
 
 A list of sanctioned addresses is the least a maker screens: a sanctioned party can use a fresh address, and
 the money that funds a swap can come from anywhere. It does not certify where funds come from.
@@ -70,3 +71,6 @@ attribute it: keep this notice with the lists.
 - `eu.txt`: Source: European Commission, Consolidated list of persons, groups and entities subject to EU
   financial sanctions. Reused under the Commission's reuse policy (Commission Decision 2011/833/EU), with the
   source acknowledged.
+- `il.txt`: Israel Sanctioned Crypto Wallets List, National Bureau for Counter Terror Financing (NBCTF),
+  Ministry of Defense (<https://matal.mod.gov.il/en/sanctions/>), compiled from OpenSanctions' `il_mod_crypto`
+  dataset (CC-BY 4.0, <https://www.opensanctions.org/>). The publisher did not issue the file in this form.

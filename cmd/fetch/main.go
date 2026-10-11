@@ -224,7 +224,17 @@ type osDataset struct {
 
 // osDatasets are the lists read that way, by their source name. Adding one is one entry here and one line in
 // denylist.Files.
-var osDatasets = map[string]osDataset{}
+var osDatasets = map[string]osDataset{
+	"IL": {
+		id: "il_mod_crypto",
+		header: `# Israel's list of sanctioned crypto wallets (NBCTF, Ministry of Defense): every CryptoWallet whose
+# publicKey is an address in EVM form, lower-cased, with the target that holds it as its note. Written
+# by go run ./cmd/fetch from OpenSanctions' il_mod_crypto dataset, which normalises the official
+# publication; do not edit by hand. Contains information from OpenSanctions (CC-BY 4.0); the publisher
+# did not issue the file in this form.
+`,
+	},
+}
 
 // osRoot is how OpenSanctions' entity export opens: a page answered with 200 that is not it has no "schema"
 // near the start.

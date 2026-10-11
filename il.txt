@@ -1,0 +1,25 @@
+# Israel's list of sanctioned crypto wallets (NBCTF, Ministry of Defense): every CryptoWallet whose
+# publicKey is an address in EVM form, lower-cased, with the target that holds it as its note. Written
+# by go run ./cmd/fetch from OpenSanctions' il_mod_crypto dataset, which normalises the official
+# publication; do not edit by hand. Contains information from OpenSanctions (CC-BY 4.0); the publisher
+# did not issue the file in this form.
+name: IL
+url: https://matal.mod.gov.il/en/sanctions/
+published: 2026-10-06
+addresses: 15
+
+0x11069987e8507d0669c870b578cc9f9b4017d127 # TAREQ ALLA MOHAMMEDALI BARAAASI
+0x175d44451403edf28469df03a9280c1197adb92c
+0x21b8d56bda776bbe68655a16895afd96f5534fed
+0x53b9b72dc6f96eb4b54143b211b22e2548e4cf5c
+0x7eab248c014d1043e54e96ac4f31ec7d9a97ffd3 # Khader Elden
+0x99d29380a2e37c04e4fe75111b7d410674a6cab3 # MAHMOUD MADHAT AHMED BAROUD
+0xad92a818e26fc3dbce7a1972308a4a86f54dd683
+0xc077bbfcf9b5b9eec0dd105e15b65ebc2a030600
+0xc0d227bd0580bad9435ca0b884ebee7ff8da71c9 # MOHAMMED NASSER IBRAHIM ABULAILA
+0xc3b194e0a4bfff0e986594d7768f58746e52eb53 # מהדי מחמד חסן
+0xc8fe1c81e927540fcc99ebb3c880a840082293da
+0xddd42d46a17b9a5b0c53c5ef2b79a6acb1b50333 # MAHMOUD MOHAMMED MAHMOUD AYESH
+0xe090669ee62e02f4437b89058a073dc7874aed8f
+0xe3740c1b2fcda407027e2c80906306604e5260e7
+0xebfe7a29ea17acb5f6f437e659bd2d472deedc54 # MOHAMMED RAMADAN HASAN ABUKWAIK
