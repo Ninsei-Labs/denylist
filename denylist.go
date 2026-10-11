@@ -1,8 +1,8 @@
-// Package denylist reads the sanctions lists this repository keeps: the addresses in EVM form that OFAC's
-// list of Specially Designated Nationals, the UK Sanctions List and the EU's consolidated list give, one file
-// each (ofac.txt, uk.txt, eu.txt). They are written from their sources by cmd/fetch, checked every week, and
-// changed only by an approved pull request. Readers fetch them from the main branch (Raw) and the date of
-// the last check from the status branch (Checked).
+// Package denylist reads the sanctions lists this repository keeps: the addresses in EVM form a source
+// gives, one file each (ofac.txt, uk.txt and eu.txt, and the lists read through OpenSanctions since). They
+// are written from their sources by cmd/fetch, checked every week, and changed only by an approved pull
+// request. Readers fetch them from the main branch (Raw) and the date of the last check from the status
+// branch (Checked).
 package denylist
 
 import (
@@ -18,14 +18,21 @@ import (
 
 // Source is one sanctions list as a file of this repository gives it.
 type Source struct {
-	Name      string   // OFAC, UK or EU
+	Name      string   // OFAC, UK, EU or a list read through OpenSanctions
 	URL       string   // the source it is written from
 	Published string   // the date of the source's file it was last written from, YYYY-MM-DD
 	Addresses []string // in EVM form, lower-cased, sorted, each once
 }
 
-// Files are the lists, in the order readers take them.
+// Files are the lists, in the order readers take them. A list is added here, its reader in cmd/fetch and
+// its row and notice line in the README, together.
 var Files = []string{"ofac.txt", "uk.txt", "eu.txt"}
+
+// Core are the files the status digest covers: the three lists. Naming them here, apart from Files, keeps a
+// digest meaning the same thing however many lists the repository grows (cat ofac.txt uk.txt eu.txt |
+// sha256sum): a reader that hashed these three files still gets the status's digest, and a list added later
+// is not silently hashed into it.
+var Core = []string{"ofac.txt", "uk.txt", "eu.txt"}
 
 const (
 	// Raw is where a reader fetches a list: Raw + one of Files.
@@ -128,8 +135,9 @@ func IsLower(a string) bool {
 	return ok && len(h) == 40 && strings.Trim(h, "0123456789abcdef") == ""
 }
 
-// Digest names a set of list files by their bytes: the SHA-256 of ofac.txt, uk.txt and eu.txt one after the
-// other, in hex (cat ofac.txt uk.txt eu.txt | sha256sum).
+// Digest names a set of list files by their bytes: the SHA-256 of the files given, one after the other, in
+// hex. The status gives it the Core lists (cat ofac.txt uk.txt eu.txt | sha256sum), which keeps the same
+// meaning as the lists grow.
 func Digest(files ...[]byte) string {
 	h := sha256.New()
 	for _, b := range files {

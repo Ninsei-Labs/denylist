@@ -7,16 +7,17 @@ import (
 	"time"
 )
 
-// The repository keeps the three lists whole, each as its header counts it, and with them the addresses
-// OFAC alone would miss. Expected members were worked out from the sources on 2026-10-09 by hand: four that
-// OFAC tags only USDT (a reader keeping the ETH tag misses them), and the UK's and the EU's that OFAC lacks.
+// The repository keeps the three lists that open it whole, each as its header counts it, and with them the
+// addresses OFAC alone would miss; the lists added after them are read the same way. Expected members were
+// worked out from the sources on 2026-10-09 by hand: four that OFAC tags only USDT (a reader keeping the ETH
+// tag misses them), and the UK's and the EU's that OFAC lacks.
 func TestTheListsCarryWhatEachSourceListsAndOFACAloneMisses(t *testing.T) {
 	ss, err := Read(".")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ss) != 3 || ss[0].Name != "OFAC" || ss[1].Name != "UK" || ss[2].Name != "EU" {
-		t.Fatalf("the lists are %d, not OFAC, UK and EU", len(ss))
+	if len(ss) < 3 || ss[0].Name != "OFAC" || ss[1].Name != "UK" || ss[2].Name != "EU" {
+		t.Fatalf("the lists are %d, and do not open with OFAC, UK and EU", len(ss))
 	}
 	for _, s := range ss {
 		if !strings.HasPrefix(s.URL, "https://") || s.Published == "" || len(s.Addresses) == 0 {

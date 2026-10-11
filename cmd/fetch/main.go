@@ -1,10 +1,12 @@
 // Command fetch writes the lists of this repository from their sources: ofac.txt from OFAC's list of
 // Specially Designated Nationals, uk.txt and eu.txt from every address in EVM form the UK Sanctions List and
-// the EU's consolidated list write in their free text. Run from the repository's root. Each address keeps the
+// the EU's consolidated list write in their free text, and each list read through OpenSanctions (see
+// osDatasets) from the CryptoWallets its dataset export gives. Run from the repository's root. Each address keeps the
 // note it had (the designation it comes from, kept by hand when a change is reviewed); a new one is noted
 // with the day it was found. With -summary it writes, as Markdown, every address added and removed with its
 // source, the body of the pull request the weekly workflow opens. With -check it writes nothing and fails
-// when a list differs from its source. With -status it reads no source: it writes the status of today's check
+// when a list differs from its source. With -files it writes nothing and prints the list files' names, one
+// line, which a workflow diffs and adds so a list added later is proposed like the rest. With -status it reads no source: it writes the status of today's check
 // to the file named (denylist.Next), from the files in -dir, main's digest given with -main, and the status
 // the file held.
 //
@@ -14,8 +16,10 @@ package main
 
 import (
 	"archive/zip"
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"flag"
@@ -39,7 +43,12 @@ func main() {
 	summary := flag.String("summary", "", "write every change, as Markdown, to this file")
 	status := flag.String("status", "", "write the status of today's check to this file, reading no source")
 	mainDigest := flag.String("main", "", "with -status: the digest of main's list files")
+	files := flag.Bool("files", false, "print the list files' names, one line, and write nothing")
 	flag.Parse()
+	if *files {
+		fmt.Println(strings.Join(denylist.Files, " "))
+		return
+	}
 	if *status != "" {
 		if err := writeStatus(*status, *dir, *mainDigest, time.Now().UTC()); err != nil {
 			fmt.Fprintln(os.Stderr, "fetch: "+err.Error())
@@ -66,15 +75,15 @@ func main() {
 	}
 }
 
-// writeStatus writes the status of a check on the day of now to path: the digest of the list files in dir, as
-// the sources gave them, and while main's (mainDigest) differ, the last day those were vouched for, carried
-// from the status path held. A status that cannot be read carries nothing.
+// writeStatus writes the status of a check on the day of now to path: the digest of the Core list files in
+// dir, as the sources gave them, and while main's (mainDigest) differ, the last day those were vouched for,
+// carried from the status path held. A status that cannot be read carries nothing.
 func writeStatus(path, dir, mainDigest string, now time.Time) error {
 	if len(mainDigest) != 64 || strings.Trim(mainDigest, "0123456789abcdef") != "" {
 		return fmt.Errorf("-main %q is not a digest", mainDigest)
 	}
 	var files [][]byte
-	for _, name := range denylist.Files {
+	for _, name := range denylist.Core {
 		b, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			return err
@@ -197,7 +206,161 @@ func readSource(ctx context.Context, s denylist.Source) (map[string]string, stri
 		}
 		return read, "", nil
 	}
+	if d, ok := osDatasets[s.Name]; ok {
+		return readOpenSanctions(ctx, d)
+	}
 	return nil, "", fmt.Errorf("no source named %s", s.Name)
+}
+
+// osBase is where OpenSanctions' latest dataset exports live. A variable, so a test can serve its own.
+var osBase = "https://data.opensanctions.org/datasets/latest/"
+
+// osDataset is one list read through OpenSanctions, which normalises the official publication into a single
+// export: the dataset's id, and the file's opening comment.
+type osDataset struct {
+	id     string // the OpenSanctions dataset id, under osBase
+	header string // the file's opening comment: what the list is and its source's terms
+}
+
+// osDatasets are the lists read that way, by their source name. Adding one is one entry here and one line in
+// denylist.Files.
+var osDatasets = map[string]osDataset{}
+
+// osRoot is how OpenSanctions' entity export opens: a page answered with 200 that is not it has no "schema"
+// near the start.
+const osRoot = `"schema"`
+
+// readOpenSanctions reads a list from OpenSanctions' export of its dataset (d.id): the dataset's index for
+// the day it last changed, and its entities for every CryptoWallet whose publicKey is an address in EVM
+// form, lower-cased, each with the target that holds it as its note.
+func readOpenSanctions(ctx context.Context, d osDataset) (map[string]string, string, error) {
+	url := osBase + d.id + "/index.json"
+	idx, err := get(ctx, url)
+	if err != nil {
+		return nil, "", err
+	}
+	published, err := exportDay(idx)
+	if err != nil {
+		return nil, "", fmt.Errorf("%s: %w", url, err)
+	}
+	url = osBase + d.id + "/entities.ftm.json"
+	b, err := get(ctx, url)
+	if err != nil {
+		return nil, "", err
+	}
+	if !bytes.Contains(b[:min(len(b), 4096)], []byte(osRoot)) {
+		return nil, "", fmt.Errorf("%s: no %s near the start: not the file it was", url, osRoot)
+	}
+	read, err := readWallets(b)
+	if err != nil {
+		return nil, "", fmt.Errorf("%s: %w", url, err)
+	}
+	if len(read) == 0 {
+		return nil, "", fmt.Errorf("%s: no address in EVM form at all: its format may have changed", url)
+	}
+	return read, published, nil
+}
+
+// exportDay is the day a dataset last changed, from its index: the export read was written from the source
+// as of then, not the day the check ran.
+func exportDay(b []byte) (string, error) {
+	var idx struct {
+		LastChange string `json:"last_change"`
+	}
+	if err := json.Unmarshal(b, &idx); err != nil {
+		return "", err
+	}
+	if idx.LastChange == "" {
+		return "", errors.New("no last_change: the index is not the one expected")
+	}
+	// OpenSanctions writes the stamp without a zone; take one with an offset too.
+	day, err := time.Parse(time.RFC3339, idx.LastChange)
+	if err != nil {
+		day, err = time.Parse("2006-01-02T15:04:05", idx.LastChange)
+	}
+	if err != nil {
+		return "", fmt.Errorf("last_change %q: %w", idx.LastChange, err)
+	}
+	return day.Format(time.DateOnly), nil
+}
+
+// wallet is the part of an OpenSanctions entity readWallets uses.
+type wallet struct {
+	ID         string              `json:"id"`
+	Caption    string              `json:"caption"`
+	Schema     string              `json:"schema"`
+	Referents  []string            `json:"referents"`
+	Properties map[string][]string `json:"properties"`
+}
+
+// readWallets reads an OpenSanctions export: every CryptoWallet whose publicKey is an address in EVM form,
+// lower-cased, each with the caption of the target that holds it (its holder, as the export links them) as
+// its note. A target with no name of its own, and a wallet no target holds, carry none: the note is left
+// off, never invented.
+func readWallets(b []byte) (map[string]string, error) {
+	var ents []wallet
+	sc := bufio.NewScanner(bytes.NewReader(b))
+	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	for sc.Scan() {
+		line := bytes.TrimSpace(sc.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var e wallet
+		if err := json.Unmarshal(line, &e); err != nil {
+			return nil, err
+		}
+		ents = append(ents, e)
+	}
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	// names are each target's caption, by its id and each of its referents, so a wallet's holder can be named.
+	names := map[string]string{}
+	for _, e := range ents {
+		n := targetName(e)
+		if n == "" {
+			continue
+		}
+		names[e.ID] = n
+		for _, r := range e.Referents {
+			names[r] = n
+		}
+	}
+	read := map[string]string{}
+	for _, e := range ents {
+		if e.Schema != "CryptoWallet" {
+			continue
+		}
+		var held []string
+		for _, h := range e.Properties["holder"] {
+			if n := names[h]; n != "" && !slices.Contains(held, n) {
+				held = append(held, n)
+			}
+		}
+		for _, k := range e.Properties["publicKey"] {
+			a := strings.ToLower(strings.TrimSpace(k))
+			if !evmForm.MatchString(a) {
+				continue
+			}
+			if note := strings.Join(held, "; "); note != "" && read[a] == "" {
+				read[a] = note
+			} else if _, ok := read[a]; !ok {
+				read[a] = ""
+			}
+		}
+	}
+	return read, nil
+}
+
+// targetName is a target's name as its caption gives it, "" when it has none: OpenSanctions writes a
+// designation without a name with only its schema as a caption.
+func targetName(e wallet) string {
+	c := strings.Join(strings.Fields(e.Caption), " ")
+	if c == "" || c == e.Schema {
+		return ""
+	}
+	return c
 }
 
 func maps(m map[string]string) func(func(string) bool) {
@@ -224,6 +387,15 @@ func notesOf(b []byte) map[string]string {
 	return out
 }
 
+// head is a list's opening comment: the three written here, or the one a list read through OpenSanctions
+// carries.
+func head(name string) string {
+	if d, ok := osDatasets[name]; ok {
+		return d.header
+	}
+	return header[name]
+}
+
 // header is each list file's opening comment: what the list is, how it is written, and its source's terms.
 var header = map[string]string{
 	"OFAC": `# OFAC's list of Specially Designated Nationals: every "Digital Currency Address" of any coin whose value
@@ -247,7 +419,7 @@ var header = map[string]string{
 // file is a list file as denylist.Parse reads it: the header, then each address with its note.
 func file(s denylist.Source, published string, read map[string]string) []byte {
 	var b strings.Builder
-	b.WriteString(header[s.Name])
+	b.WriteString(head(s.Name))
 	fmt.Fprintf(&b, "name: %s\nurl: %s\npublished: %s\naddresses: %d\n\n", s.Name, s.URL, published, len(read))
 	for _, a := range slices.Sorted(maps(read)) {
 		if read[a] == "" {

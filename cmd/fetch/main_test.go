@@ -4,6 +4,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -230,16 +232,33 @@ func TestARunWritesTheListsAsTheirSourcesGiveThem(t *testing.T) {
 				case "/eu.xml":
 					w.Write([]byte(tc.eu))
 				default:
-					http.NotFound(w, r)
+					switch {
+					case strings.HasSuffix(r.URL.Path, "/index.json"):
+						w.Write([]byte(osIndex))
+					case strings.HasSuffix(r.URL.Path, "/entities.ftm.json"):
+						w.Write([]byte(osDoc(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/"), "/entities.ftm.json"))))
+					default:
+						http.NotFound(w, r)
+					}
 				}
 			}))
 			defer srv.Close()
+			oldBase := osBase
+			osBase = srv.URL + "/"
+			defer func() { osBase = oldBase }()
 			dir := t.TempDir()
-			for name, body := range map[string]string{
+			bodies := map[string]string{
 				"ofac.txt": "name: OFAC\nurl: " + srv.URL + "/sdn.zip\npublished: 2026-10-08\naddresses: 2\n" + a + " # GROUP\n" + b + " # DOE, Jane\n",
 				"uk.txt":   "name: UK\nurl: " + srv.URL + "/uk.xml\npublished: 2026-10-08\naddresses: 1\n" + c + " # X0001 A DESIGNATION (Regime)\n",
 				"eu.txt":   "name: EU\nurl: " + srv.URL + "/eu.xml\npublished: 2026-09-22\naddresses: 1\n" + d + " # EU.1.2 An entry\n",
-			} {
+			}
+			for _, name := range denylist.Files {
+				body, ok := bodies[name]
+				if !ok {
+					// A list read through OpenSanctions: the server above gives its export, so its file
+					// holds exactly what that export yields (see osFile and osDoc).
+					body = osFile(name)
+				}
 				if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
 					t.Fatal(err)
 				}
@@ -288,7 +307,7 @@ func TestARunWritesTheListsAsTheirSourcesGiveThem(t *testing.T) {
 func TestTheStatusNamesTheFilesAndWhenMainsWereLastTheSources(t *testing.T) {
 	dir := t.TempDir()
 	var files [][]byte
-	for i, name := range denylist.Files {
+	for i, name := range denylist.Core {
 		b := []byte(fmt.Sprintf("name: X%d\nurl: https://example.org/%d\npublished: 2026-10-01\naddresses: 1\n0x%040x\n", i, i, i+1))
 		if err := os.WriteFile(filepath.Join(dir, name), b, 0o644); err != nil {
 			t.Fatal(err)
@@ -325,5 +344,72 @@ func TestTheStatusNamesTheFilesAndWhenMainsWereLastTheSources(t *testing.T) {
 	}
 	if err := writeStatus(path, dir, "main", day(26)); err == nil || read() != "checked 2026-10-19 "+digest+"\n" {
 		t.Errorf("a main digest that is no digest: %v, the file %q", err, read())
+	}
+}
+
+// osIndex and osDoc are the made-up OpenSanctions export a test serves: a dataset's index, carrying the day
+// it last changed, and its entities, one target and one CryptoWallet holding the address derived from the
+// dataset id. osFile is the list file that export writes: that address, with the target as its note.
+const (
+	osIndex = `{"name": "test", "last_change": "2026-10-06T16:50:22"}`
+	osHold  = "TEST TARGET"
+)
+
+func osAddr(dataset string) string {
+	s := sha256.Sum256([]byte(dataset))
+	return "0x" + hex.EncodeToString(s[:])[:40]
+}
+
+func osDoc(dataset string) string {
+	a := osAddr(dataset)
+	return fmt.Sprintf(`{"id": "t0", "caption": %q, "schema": "Organization"}`, osHold) + "\n" +
+		fmt.Sprintf(`{"id": "t1", "caption": %q, "schema": "CryptoWallet", "properties": {"publicKey": [%q], "currency": ["ETH"], "holder": ["t0"]}}`, a, a) + "\n"
+}
+
+func osFile(name string) string {
+	source := strings.ToUpper(strings.TrimSuffix(name, ".txt"))
+	return fmt.Sprintf("name: %s\nurl: https://example.org/%s\npublished: 2026-10-06\naddresses: 1\n\n%s # %s\n",
+		source, source, osAddr(osDatasets[source].id), osHold)
+}
+
+// An OpenSanctions export is read like the other sources: every CryptoWallet whose publicKey is an address
+// in EVM form, lower-cased, with the target that holds it as its note; a target with no name of its own, and
+// a wallet no target holds, leave the note off; the index gives the day the export last changed; anything
+// else fails. Made-up entities.
+func TestAnOpenSanctionsExportIsReadLikeTheOtherSources(t *testing.T) {
+	const (
+		eth  = "0xAaAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		usdt = "0xBbBbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	)
+	doc := strings.Join([]string{
+		`{"id": "t0", "caption": "GARANTEX", "schema": "Organization"}`,
+		`{"id": "t1", "caption": "Person", "schema": "Person", "properties": {"name": []}}`,
+		`{"id": "w1", "caption": "wallet", "schema": "CryptoWallet", "properties": {"publicKey": ["` + eth + `", "TQ1eL9Z6zZ3zZ3zZ3zZ3zZ3zZ3"], "currency": ["ETH"], "holder": ["t0"]}}`,
+		`{"id": "w2", "caption": "wallet", "schema": "CryptoWallet", "properties": {"publicKey": ["` + usdt + `"], "currency": ["USDT"], "holder": ["t1"]}}`,
+		`{"id": "w3", "caption": "wallet", "schema": "CryptoWallet", "properties": {"publicKey": ["0xcccccccccccccccccccccccccccccccccccccccc"]}}`,
+	}, "\n") + "\n"
+	read, err := readWallets([]byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{strings.ToLower(eth): "GARANTEX", strings.ToLower(usdt): "", "0xcccccccccccccccccccccccccccccccccccccccc": ""}
+	if len(read) != len(want) {
+		t.Fatalf("%d addresses %v, want %d", len(read), read, len(want))
+	}
+	for a, n := range want {
+		if got, ok := read[a]; !ok || got != n {
+			t.Errorf("%s: %q (%v), want %q", a, got, ok, n)
+		}
+	}
+	if day, err := exportDay([]byte(osIndex)); err != nil || day != "2026-10-06" {
+		t.Errorf("the index gives %q (%v), want 2026-10-06", day, err)
+	}
+	for _, bad := range []string{"", "{}", `{"last_change": "2026-10-06"}`, `{"last_change": "6 Oct 2026"}`} {
+		if _, err := exportDay([]byte(bad)); err == nil {
+			t.Errorf("%q read as the day the export changed", bad)
+		}
+	}
+	if _, err := readWallets([]byte("{\"id\": \"x\", \"schema\": \"Person\"}\nnot json\n")); err == nil {
+		t.Error("a broken line read as an export")
 	}
 }
