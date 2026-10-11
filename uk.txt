@@ -1,0 +1,15 @@
+# The UK Sanctions List (FCDO), which binds operators in the UK and UK persons anywhere: the addresses in
+# EVM form its designations give. The file writes them only in free text (OtherInformation), several ways;
+# go run ./cmd/fetch finds them, and each note names the designation it comes from, kept by hand.
+# Contains public sector information licensed under the Open Government Licence v3.0.
+name: UK
+url: https://sanctionslist.fcdo.gov.uk/docs/UK-Sanctions-List.xml
+published: 2026-10-08
+addresses: 6
+
+0x175d44451403edf28469df03a9280c1197adb92c # CTD0004 AYASH (Counter-Terrorism)
+0x21b8d56bda776bbe68655a16895afd96f5534fed # CTD0004 AYASH (Counter-Terrorism)
+0x7ff9cfad3877f21d41da833e2f775db0569ee3d9 # RUS1421 GARANTEX EUROPE OU (Russia)
+0xae05eb856cb28c156d9722094f5eefd5693bc181 # GHR0174 Byex Exchange Company Limited (Global Human Rights)
+0xd599ac04a1c786972b81e0fef6fb0c3e7b52f8a7 # GHR0174 Byex Exchange Company Limited (Global Human Rights)
+0xe950dc316b836e4eefb8308bf32bf7c72a1358ff # CTD0004 AYASH (Counter-Terrorism)

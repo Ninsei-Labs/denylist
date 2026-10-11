@@ -1,0 +1,12 @@
+# The EU's consolidated list of financial sanctions, which binds operators in the EU, EU nationals
+# anywhere and business done in the EU: the addresses in EVM form its entries give. The file writes them
+# only in free text (remark); go run ./cmd/fetch finds them, and each note names the entry it comes from,
+# kept by hand. Source: European Commission, Consolidated list of persons, groups and entities subject to EU
+# financial sanctions; reused under the Commission's reuse policy, with the source acknowledged.
+name: EU
+url: https://webgate.ec.europa.eu/fsd/fsf/public/files/xmlFullSanctionsList_1_1/content?token=dG9rZW4tMjAxNw
+published: 2026-09-22
+addresses: 2
+
+0x002471b8a185f9980708d0eaec5b289714f56f8d # EU.12747.39 Garantex (ETH)
+0x3051ca7cb7f6c599fa2f27385ad75010cf0f2bbf # EU.12747.39 Garantex (BSC)
