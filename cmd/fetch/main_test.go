@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -278,5 +279,51 @@ func TestARunWritesTheListsAsTheirSourcesGiveThem(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The status a check writes names the digest of the files in the directory, and while main's differ, the last
+// day main's were vouched for, from the status the file held; a malformed status carries nothing, and a main
+// digest that is no digest writes nothing. Made-up files.
+func TestTheStatusNamesTheFilesAndWhenMainsWereLastTheSources(t *testing.T) {
+	dir := t.TempDir()
+	var files [][]byte
+	for i, name := range denylist.Files {
+		b := []byte(fmt.Sprintf("name: X%d\nurl: https://example.org/%d\npublished: 2026-10-01\naddresses: 1\n0x%040x\n", i, i, i+1))
+		if err := os.WriteFile(filepath.Join(dir, name), b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, b)
+	}
+	digest, other := denylist.Digest(files...), strings.Repeat("e", 64)
+	path := filepath.Join(dir, "checked")
+	read := func() string {
+		b, _ := os.ReadFile(path)
+		return string(b)
+	}
+	day := func(d int) time.Time { return time.Date(2026, 10, d, 6, 17, 0, 0, time.UTC) }
+	for _, c := range []struct {
+		held, main string
+		on         time.Time
+		want       string
+	}{
+		{"", digest, day(5), "checked 2026-10-05 " + digest + "\n"},
+		{"checked 2026-10-05 " + other + "\n", other, day(12), "checked 2026-10-12 " + digest + " main 2026-10-05 " + other + "\n"},
+		{"checked 2026-10-12 " + digest + " main 2026-10-05 " + other + "\n", other, day(19), "checked 2026-10-19 " + digest +
+			" main 2026-10-05 " + other + "\n"},
+		{"not a status\n", other, day(19), "checked 2026-10-19 " + digest + "\n"},
+	} {
+		if err := os.WriteFile(path, []byte(c.held), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if c.held == "" {
+			os.Remove(path)
+		}
+		if err := writeStatus(path, dir, c.main, c.on); err != nil || read() != c.want {
+			t.Errorf("held %q, main %.8s: wrote %q (%v), want %q", c.held, c.main, read(), err, c.want)
+		}
+	}
+	if err := writeStatus(path, dir, "main", day(26)); err == nil || read() != "checked 2026-10-19 "+digest+"\n" {
+		t.Errorf("a main digest that is no digest: %v, the file %q", err, read())
 	}
 }
