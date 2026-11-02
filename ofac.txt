@@ -4,8 +4,8 @@
 # Control; a work of the US government, in the public domain.
 name: OFAC
 url: https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDN_XML.ZIP
-published: 2026-10-08
-addresses: 124
+published: 2026-10-28
+addresses: 127
 
 0x0330070fd38ec3bb94f58fa55d40368271e9e54a # AMNOKGANG TECHNOLOGY DEVELOPMENT COMPANY
 0x038989cbb1710c72b9920dc4fa529158f463e72c # OJEDA AVILES, Armando de Jesus
@@ -16,6 +16,7 @@ addresses: 124
 0x098b716b8aaf21512996dc57eb0615e2383e2f96 # LAZARUS GROUP
 0x0ee5067b06776a89ccc7dc8ee369984ad7db5e06 # PEIJNENBURG, Alex Adrianus Martinus
 0x12de548f79a50d2bd05481c8515c1ef5183666a9 # OLD VECTOR LLC
+0x12ea80238c7d805d003ce793594e92d84a6f4e8d # BOYKOV, Ilya Aleksandrovich
 0x14779cec0b117d5194c750c55ea1f42086631964 # OJEDA AVILES, Armando de Jesus
 0x175d44451403edf28469df03a9280c1197adb92c # GAZA NOW
 0x1967d8af5bd86a497fb3dd7899a020e47560daaf # GRIMM, Matthew Simon
@@ -64,6 +65,7 @@ addresses: 124
 0x6fac4d18c912343bf86fa7049364dd4e424ab9c0 # MESRI, Behzad
 0x72a5843cc08275c8171e582972aa4fda8c397b2a # SECONDEYE SOLUTION
 0x747afb5c7a7fc34b547cd0fdebf9b91759c5a52b # SIM, Hyon Sop
+0x761edd5e4546229a0bd35ae99b4d3d01cf4a3510 # BOYKOV, Ilya Aleksandrovich; OBERTAS, Vitold Viktorovich
 0x76ea76ca4eb727f18956ab93445a94c5280412b9 # SIM, Hyon Sop
 0x797d7ae72ebddcdea2a346c1834e04d1f8df102b # SEMENOV, Roman
 0x7ced75026204ac29c34bea98905d4c949f27361e # GARANTEX EUROPE OU
@@ -115,6 +117,7 @@ addresses: 124
 0xe1d865c3d669dcc8c57c8d023140cb204e672ee4 # WANG, Yunhe
 0xe1e4c5e5ed8f03ae61b581e2def126025f2b9401 # SOKOLOVSKI, Rolan
 0xe3d35f68383732649669aa990832e017340dbca5 # ALIVAND, Arash Estaki
+0xe4c9a7f68b1eba4508f54f07f7378847318dd1a3 # KIM, Ki Hyok
 0xe7aa314c77f4233c18c6cc84384a9247c0cf367b # SUEX OTC, S.R.O.
 0xe950dc316b836e4eefb8308bf32bf7c72a1358ff # GAZA NOW
 0xeb507efa9ee692a4c774ad1de9f3cb26fc459da3 # KAHZADIAN, Arman
