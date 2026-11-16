@@ -44,7 +44,7 @@ When a list differs from its source it opens one pull request, or updates the op
 address added and removed with its source; nothing merges by itself, and main takes a change only with a
 code owner's review. A new address from the UK or EU list comes with the day it was found as its note: the
 reviewer replaces it with the designation it comes from. A source that cannot be read, or lists a fifth
-fewer addresses than its file, fails the run and opens an issue: such a drop is checked by hand. Every run
+fewer addresses than its file, fails the run before any file is written and opens an issue: such a drop is checked by hand. Every run
 that read all three sources writes the status above, so a reader sees the check is alive even when no list
 changed.
 
