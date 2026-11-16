@@ -5,6 +5,9 @@ name: update
 # than its file, fails the run and opens an issue. Every run that read all three sources writes
 # "checked <day> <digest>" to the status branch, the digest that of the files the sources give now, and while
 # main's files differ, " main <day> <digest>": the last day they were the sources' own (cmd/fetch -status).
+# A pull request this workflow opens starts no other workflow (GitHub's rule for its token), so the run tests
+# the lists it proposes itself (.github/test.sh, the ci workflow's checks) and records the result on the
+# proposed commit as the commit status "test", the check main requires; a failure also opens the issue.
 # GitHub stops a schedule after 60 days without activity in the repository; each run asks it to keep this one
 # on, and a stale status shows if it stopped anyway.
 on:
@@ -16,6 +19,7 @@ permissions:
   pull-requests: write
   issues: write
   actions: write
+  statuses: write
 concurrency:
   group: update
   cancel-in-progress: false
@@ -60,7 +64,12 @@ jobs:
           git add ofac.txt uk.txt eu.txt
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -q -m "$title"
+          tested=success
+          bash .github/test.sh || tested=failure
           git push --force origin update/lists
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$(git rev-parse HEAD)" -f state="$tested" -f context=test \
+            -f description="the ci checks, run by the weekly update on the lists it proposes" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > /dev/null
           if [ "$(gh pr list --head update/lists --state open --json number --jq length)" != "0" ]; then
             gh pr edit update/lists --title "$title" --body-file "$RUNNER_TEMP/summary.md"
           elif ! gh pr create --head update/lists --base main --title "$title" --body-file "$RUNNER_TEMP/summary.md"; then
@@ -72,6 +81,10 @@ jobs:
               echo
               cat "$RUNNER_TEMP/summary.md"; } > "$RUNNER_TEMP/issue.md"
             gh issue create --title "$title" --body-file "$RUNNER_TEMP/issue.md"
+            exit 1
+          fi
+          if [[ $tested != success ]]; then
+            echo "::error::the lists proposed fail the repository's checks"
             exit 1
           fi
       - name: Open an issue
