@@ -27,4 +27,11 @@ is kept by whoever writes and reviews a change.
   run; it is never written as a list of fewer or no addresses.
 - The format is the contract with every reader. A change to it is a change to `denylist.go`, the README and
   every reader, together.
-- Before committing: `gofmt -l .` prints nothing, `go vet ./...` and `go test -race ./...` pass.
+- Each way a source can fail (an HTTP error, an empty answer, an answer in another form, a sharp drop in any
+  list) is a row of the failure table in `cmd/fetch/main_test.go`, which checks that the run fails and writes no file.
+- Before committing: `bash .github/test.sh` passes (gofmt, `go vet` and `go test -race`, as CI runs them).
+
+Tests follow docs/TESTING.md, the organisation's test standard, kept in sync from Ninsei-Labs/.github. Read
+it before writing or changing a test.
+
+@docs/TESTING.md
