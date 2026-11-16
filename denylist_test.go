@@ -123,13 +123,42 @@ func TestTheCheckedFileGivesItsDayAndDigest(t *testing.T) {
 	}
 	for _, bad := range []string{"", "checked 2026-10-11", "checked 11 Oct " + d, "checked 2026-10-11 " + d[:63],
 		"checked 2026-10-11 " + strings.ToUpper(d), "Checked 2026-10-11 " + d, "checked 2026-10-11 " + d + " more",
-		"checked 2026-10-18 " + d + " main 2026-10-11", "checked 2026-10-18 " + d + " since 2026-10-11 " + m,
+		"checked 2026-10-18 " + d + " main 2026-10-11",
+		"checked 2026-10-11 " + strings.ToUpper(d), "checked 2026-1-2 " + d, "checked 2026-10-18 " + d + " since 2026-10-11 " + m,
 		"checked 2026-10-18 " + d + " main 11 Oct " + m, "checked 2026-10-18 " + d + " main 2026-10-11 " + m[:63],
 		"checked 2026-10-18 " + d + " main 2026-10-11 " + m + " more"} {
 		if _, err := ParseChecked([]byte(bad)); err == nil {
 			t.Errorf("%q read as a status", bad)
 		}
 	}
+}
+
+// Every reader takes a status as its one canonical line: a status read has a digest of 64 lower-case hex
+// digits (and a main one, or none), and is the same words as the line it was read from, so writing it back and
+// reading it again gives the same status.
+func FuzzParseChecked(f *testing.F) {
+	d, m := strings.Repeat("ab", 32), strings.Repeat("cd", 32)
+	for _, line := range []string{"checked 2026-10-11 " + d + "\n", "checked 2026-10-18 " + d + " main 2026-10-11 " + m + "\n",
+		"checked 2026-10-18 " + d + " main 2026-10-11",
+		"checked 2026-10-11 " + strings.ToUpper(d), "checked 2026-1-2 " + d, "checked 2026-02-30 " + d, "\tchecked  2026-10-11\n" + d, ""} {
+		f.Add([]byte(line))
+	}
+	hex64 := func(s string) bool { return len(s) == 64 && strings.Trim(s, "0123456789abcdef") == "" }
+	f.Fuzz(func(t *testing.T, b []byte) {
+		s, err := ParseChecked(b)
+		if err != nil {
+			return
+		}
+		if !hex64(s.Digest) || s.MainDigest != "" && !hex64(s.MainDigest) || s.MainDigest == "" && !s.MainDay.IsZero() {
+			t.Fatalf("%q read as %+v", b, s)
+		}
+		if words := strings.Join(strings.Fields(string(b)), " "); s.String() != words {
+			t.Fatalf("%q read as %q", b, s.String())
+		}
+		if back, err := ParseChecked([]byte(s.String() + "\n")); err != nil || back != s {
+			t.Fatalf("%q written back as %q reads %+v, %v", b, s.String(), back, err)
+		}
+	})
 }
 
 // Each week's status vouches for main's files on the newest day they were the sources' own, whatever pull
