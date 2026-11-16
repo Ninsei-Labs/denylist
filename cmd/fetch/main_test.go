@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -325,5 +326,149 @@ func TestTheStatusNamesTheFilesAndWhenMainsWereLastTheSources(t *testing.T) {
 	}
 	if err := writeStatus(path, dir, "main", day(26)); err == nil || read() != "checked 2026-10-19 "+digest+"\n" {
 		t.Errorf("a main digest that is no digest: %v, the file %q", err, read())
+	}
+}
+
+// A source that cannot be read, or answers with something other than its list, fails the whole run and leaves
+// every file as it was, whatever the other sources give and in whichever list it happens: an HTTP error (one
+// with the list in its body too), an empty answer, an error page answered with 200 (one that names an address
+// the file holds, so only the form refuses it), an SDN_XML.ZIP that is not one or holds a second file, and a
+// list after the first that drops to three of its five addresses. Every other source changes its list, so a
+// file written before the failure would show. Made-up sources, addresses and pages.
+func TestASourceThatIsNotItsListFailsTheRunAndWritesNothing(t *testing.T) {
+	addr := func(n int) string { return fmt.Sprintf("0x%040x", n) }
+	ofac, uk, eu, added := []string{addr(0x11), addr(0x12)}, []string{addr(0x31), addr(0x32), addr(0x33), addr(0x34), addr(0x35)},
+		[]string{addr(0x41), addr(0x42), addr(0x43), addr(0x44), addr(0x45)}, addr(0x55)
+	now := time.Date(2026, 10, 12, 6, 17, 0, 0, time.UTC)
+	type answer struct {
+		status int
+		body   []byte
+	}
+	ok := func(body []byte) answer { return answer{http.StatusOK, body} }
+	sdn := func(addrs ...string) string {
+		var entries []string
+		for i, a := range addrs {
+			entries = append(entries, entry(fmt.Sprintf("GROUP %d", i), "", [2]string{"Digital Currency Address - ETH", a}))
+		}
+		return sdnDoc(fmt.Sprint(len(addrs)), entries...)
+	}
+	twoFiles := func() []byte {
+		var buf bytes.Buffer
+		z := zip.NewWriter(&buf)
+		for _, name := range []string{"SDN.XML", "README.TXT"} {
+			w, err := z.Create(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			w.Write([]byte(sdn(ofac...)))
+		}
+		if err := z.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return buf.Bytes()
+	}
+	// Each source adds one address to its list.
+	good := map[string]answer{
+		"/sdn.zip": ok(zipped(t, sdn(append(slices.Clone(ofac), added)...))),
+		"/uk.xml":  ok([]byte("<Designations>" + strings.Join(append(slices.Clone(uk), added), " ") + "</Designations>")),
+		"/eu.xml":  ok([]byte("<export>" + strings.Join(append(slices.Clone(eu), added), " ") + "</export>")),
+	}
+	page := func(a string) []byte {
+		return []byte("<!DOCTYPE html><html><head><title>Service unavailable</title></head><body><p>Try again later. " +
+			"Last search: " + a + "</p></body></html>")
+	}
+	for _, tc := range []struct {
+		name   string
+		path   string
+		answer answer
+		says   string
+	}{
+		{"OFAC answers 404", "/sdn.zip", answer{http.StatusNotFound, []byte("404 page not found\n")}, "/sdn.zip: 404 Not Found"},
+		{"OFAC answers 500 with its list", "/sdn.zip", answer{http.StatusInternalServerError, good["/sdn.zip"].body},
+			"/sdn.zip: 500 Internal Server Error"},
+		{"the UK answers 500 with its list", "/uk.xml", answer{http.StatusInternalServerError, good["/uk.xml"].body},
+			"/uk.xml: 500 Internal Server Error"},
+		{"the EU answers 503 with its list", "/eu.xml", answer{http.StatusServiceUnavailable, good["/eu.xml"].body},
+			"/eu.xml: 503 Service Unavailable"},
+		{"OFAC answers nothing", "/sdn.zip", ok(nil), "/sdn.zip: an empty answer"},
+		{"the UK answers nothing", "/uk.xml", ok(nil), "/uk.xml: an empty answer"},
+		{"the EU answers nothing", "/eu.xml", ok(nil), "/eu.xml: an empty answer"},
+		{"OFAC answers an error page", "/sdn.zip", ok(page(ofac[0])), "SDN_XML.ZIP: zip: not a valid zip file"},
+		{"the UK answers an error page", "/uk.xml", ok(page(uk[0])), "no <Designations near the start"},
+		{"the EU answers an error page", "/eu.xml", ok(page(eu[0])), "no <export near the start"},
+		{"OFAC's zip holds a second file", "/sdn.zip", ok(twoFiles()), "SDN_XML.ZIP holds 2 files, not SDN.XML alone"},
+		{"the UK's list drops after OFAC's changed", "/uk.xml", ok([]byte("<Designations>" + strings.Join(uk[:3], " ") + "</Designations>")),
+			"UK: the source lists 3 addresses against the file's 5"},
+		{"the EU's list drops after the others changed", "/eu.xml", ok([]byte("<export>" + strings.Join(eu[:3], " ") + "</export>")),
+			"EU: the source lists 3 addresses against the file's 5"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				ans, found := good[r.URL.Path]
+				if r.URL.Path == tc.path {
+					ans, found = tc.answer, true
+				}
+				if !found {
+					http.NotFound(w, r)
+					return
+				}
+				w.WriteHeader(ans.status)
+				w.Write(ans.body)
+			}))
+			defer srv.Close()
+			dir := t.TempDir()
+			list := func(name, path string, addrs []string) []byte {
+				return []byte("name: " + name + "\nurl: " + srv.URL + path + "\npublished: 2026-10-08\naddresses: " + fmt.Sprint(len(addrs)) + "\n" +
+					strings.Join(addrs, " # an entry\n") + " # an entry\n")
+			}
+			before := map[string][]byte{"ofac.txt": list("OFAC", "/sdn.zip", ofac), "uk.txt": list("UK", "/uk.xml", uk),
+				"eu.txt": list("EU", "/eu.xml", eu)}
+			for name, body := range before {
+				if err := os.WriteFile(filepath.Join(dir, name), body, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			changes, err := run(context.Background(), dir, false, now, io.Discard)
+			if err == nil || !strings.Contains(err.Error(), tc.says) {
+				t.Fatalf("%v, %d lists changed; want a failure saying %q", err, len(changes), tc.says)
+			}
+			for name, body := range before {
+				if got, err := os.ReadFile(filepath.Join(dir, name)); err != nil || !bytes.Equal(got, body) {
+					t.Errorf("%s was written:\n%s", name, got)
+				}
+			}
+		})
+	}
+	// With every source answering its list, the same run writes all three: the failures above are the answers'.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if ans, found := good[r.URL.Path]; found {
+			w.Write(ans.body)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	for name, l := range map[string]struct {
+		name, path string
+		addrs      []string
+	}{"ofac.txt": {"OFAC", "/sdn.zip", ofac}, "uk.txt": {"UK", "/uk.xml", uk}, "eu.txt": {"EU", "/eu.xml", eu}} {
+		body := "name: " + l.name + "\nurl: " + srv.URL + l.path + "\npublished: 2026-10-08\naddresses: " + fmt.Sprint(len(l.addrs)) + "\n" +
+			strings.Join(l.addrs, "\n") + "\n"
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if changes, err := run(context.Background(), dir, false, now, io.Discard); err != nil || len(changes) != 3 {
+		t.Fatalf("every source answering its list: %d lists changed, %v; want 3", len(changes), err)
+	}
+	ss, err := denylist.Read(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range [][]string{ofac, uk, eu} {
+		if want = append(slices.Clone(want), added); !slices.Equal(ss[i].Addresses, want) {
+			t.Errorf("%s holds %v, want %v", ss[i].Name, ss[i].Addresses, want)
+		}
 	}
 }

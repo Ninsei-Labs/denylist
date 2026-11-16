@@ -9,7 +9,8 @@
 // the file held.
 //
 // A source that cannot be read, reads in a form other than the one expected, or lists a fifth fewer
-// addresses than the file holds fails the run: it is never taken for a list of fewer or no addresses.
+// addresses than the file holds fails the run before any file is written: it is never taken for a list of
+// fewer or no addresses.
 package main
 
 import (
@@ -100,12 +101,19 @@ type change struct {
 // changed its form, or a mistake, until a person says otherwise.
 const minShare = 0.8
 
+// run reads every source and checks it against its file before it writes any file: a source that fails leaves
+// all three as they were. Writes begin only after every source passed.
 func run(ctx context.Context, dir string, check bool, now time.Time, out io.Writer) ([]change, error) {
 	have, err := denylist.Read(dir)
 	if err != nil {
 		return nil, err
 	}
 	var changes []change
+	type write struct {
+		path string
+		b    []byte
+	}
+	var writes []write
 	for i, s := range have {
 		path := filepath.Join(dir, denylist.Files[i])
 		old, err := os.ReadFile(path)
@@ -135,9 +143,6 @@ func run(ctx context.Context, dir string, check bool, now time.Time, out io.Writ
 		}
 		changes = append(changes, c)
 		fmt.Fprintf(out, "%s: %d added, %d removed\n", s.Name, len(c.added), len(c.removed))
-		if check {
-			continue
-		}
 		for a, n := range read {
 			if n == "" {
 				read[a] = notes[a]
@@ -149,7 +154,13 @@ func run(ctx context.Context, dir string, check bool, now time.Time, out io.Writ
 		if published == "" {
 			published = now.Format(time.DateOnly)
 		}
-		if err := os.WriteFile(path, file(s, published, read), 0o644); err != nil {
+		writes = append(writes, write{path, file(s, published, read)})
+	}
+	if check {
+		return changes, nil
+	}
+	for _, w := range writes {
+		if err := os.WriteFile(w.path, w.b, 0o644); err != nil {
 			return nil, err
 		}
 	}
