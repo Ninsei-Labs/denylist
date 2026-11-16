@@ -1,0 +1,72 @@
+name: fuzz
+# The parsers of what the sources, the list files and the status branch give are fuzzed for 30 s each every
+# Monday before the weekly update when main changed: about 3 standard minutes plus 1 slim minute; unchanged
+# runs use only the slim planning minute. Their seeds run with every go test. An
+# input that breaks one is kept as an artifact, to be added to that target's seeds in testdata/fuzz with the fix.
+on:
+  schedule:
+    - cron: '43 5 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  plan:
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.main.outputs.run }}
+    steps:
+      - name: Main changed since the last successful fuzz run
+        id: main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" != schedule ]]; then
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          last=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/fuzz.yml/runs?event=schedule&branch=main&status=success&per_page=1" \
+            --jq '.workflow_runs[0].head_sha // ""') || { echo '::warning::Last fuzz run unreadable: the fuzzers run.'; last=''; }
+          if [[ "$last" == "$GITHUB_SHA" ]]; then
+            echo '::notice::Main is unchanged since the last successful fuzz run: skipped.'
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+          fi
+  fuzz:
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Fuzz each parser for 30 s
+        run: |
+          failed=()
+          for target in .:FuzzParse .:FuzzParseChecked ./cmd/fetch:FuzzReadSDN ./cmd/fetch:FuzzEvmIn; do
+            go test -p 1 -run '^$' -fuzz "^${target#*:}\$" -fuzztime 30s -fuzzminimizetime 10s "${target%%:*}" || failed+=("$target")
+          done
+          if ((${#failed[@]})); then
+            printf '::error::%s found an input that breaks it\n' "${failed[@]}"
+            exit 1
+          fi
+      - name: Keep the inputs that broke a parser
+        if: failure()
+        run: |
+          git ls-files -z --others --exclude-standard -- ':(glob)**/testdata/fuzz/**' > "$RUNNER_TEMP/found"
+          if [[ -s "$RUNNER_TEMP/found" ]]; then
+            tar --null -T "$RUNNER_TEMP/found" -cf "$RUNNER_TEMP/fuzz-inputs.tar"
+          fi
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-inputs
+          path: ${{ runner.temp }}/fuzz-inputs.tar
+          if-no-files-found: ignore
+          retention-days: 30
