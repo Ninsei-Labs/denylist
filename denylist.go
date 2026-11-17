@@ -8,6 +8,7 @@ package denylist
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -40,7 +41,7 @@ const (
 func Read(dir string) ([]Source, error) {
 	out := make([]Source, 0, len(Files))
 	for _, name := range Files {
-		b, err := os.ReadFile(filepath.Join(dir, name))
+		b, err := os.ReadFile(filepath.Join(dir, name)) //nolint:gosec // The caller chooses its list directory; filenames come from Files.
 		if err != nil {
 			return nil, err
 		}
@@ -113,11 +114,11 @@ func Parse(b []byte) (Source, error) {
 	}
 	switch {
 	case s.Name == "" || s.URL == "" || s.Published == "" || count < 0:
-		return Source{}, fmt.Errorf("the header needs name, url, published and addresses")
+		return Source{}, errors.New("the header needs name, url, published and addresses")
 	case count != len(s.Addresses):
 		return Source{}, fmt.Errorf("the header counts %d addresses and the file lists %d", count, len(s.Addresses))
 	case count == 0:
-		return Source{}, fmt.Errorf("no addresses: a list of none refuses no one")
+		return Source{}, errors.New("no addresses: a list of none refuses no one")
 	}
 	return s, nil
 }
@@ -193,7 +194,7 @@ func (s Status) String() string {
 // Vouches is the newest day a check vouched for files of digest d: the check's own day when they are the
 // files the sources gave it, the last day main's files were the check's own when they are main's, and no day
 // (ok false) for any other files.
-func (s Status) Vouches(d string) (day time.Time, ok bool) {
+func (s Status) Vouches(d string) (day time.Time, ok bool) { //nolint:gocritic // A status is a small owned value; keep the value-receiver API consistent with String.
 	switch {
 	case d == "":
 	case d == s.Digest:
@@ -207,7 +208,7 @@ func (s Status) Vouches(d string) (day time.Time, ok bool) {
 // Next is the status a check on day writes, the sources giving files of digest and main holding files of
 // mainDigest: while those differ, the last day main's files were vouched for, carried from prev while they
 // are the same files.
-func Next(prev Status, day time.Time, digest, mainDigest string) Status {
+func Next(prev Status, day time.Time, digest, mainDigest string) Status { //nolint:gocritic // The previous status is an immutable input snapshot, not shared mutable state.
 	s := Status{Day: day, Digest: digest}
 	if mainDigest != digest {
 		if d, ok := prev.Vouches(mainDigest); ok {

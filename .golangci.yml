@@ -1,0 +1,63 @@
+version: "2"
+
+# The gate is a code, performance and security gate. Style-only linters stay out: their findings do not
+# change behaviour, and they would bury the findings that do.
+linters:
+  default: standard
+  enable:
+    # HTTP and database resources must not leak.
+    - bodyclose
+    - rowserrcheck
+    - sqlclosecheck
+    # Cancellation, error wrapping and JSON failures.
+    - contextcheck
+    - errchkjson
+    - errorlint
+    - durationcheck
+    - noctx
+    # Nil, conversion and assignment mistakes that panic or hide a failure.
+    - exhaustive
+    - forcetypeassert
+    - makezero
+    - mirror
+    - musttag
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - predeclared
+    - reassign
+    - unconvert
+    - wastedassign
+    # Logging, context and exhaustiveness checks with no current findings: they keep new code honest.
+    - fatcontext
+    - loggercheck
+    - nolintlint
+    - gochecksumtype
+    # Security and allocation/CPU hot spots.
+    - gosec
+    - prealloc
+    - perfsprint
+    - gocritic
+  settings:
+    staticcheck:
+      # Staticcheck's style and quick-fix groups are not part of this gate.
+      checks:
+        - all
+        - -ST*
+        - -QF*
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+      disabled-tags:
+        - style
+        - experimental
+        - opinionated
+issues:
+  # Report every finding, not the first fifty of a kind: the baseline issue is the cleanup list.
+  max-issues-per-linter: 0
+  max-same-issues: 0
+run:
+  # The gate covers shipped code. Test files stay out: their unchecked cleanup calls are not a runtime or
+  # security path, and they would bury the production findings.
+  tests: false
