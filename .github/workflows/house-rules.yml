@@ -10,4 +10,4 @@ permissions:
   contents: read
 jobs:
   house-rules:
-    uses: Ninsei-Labs/.github/.github/workflows/house-rules.yml@main
+    uses: Ninsei-Labs/.github/.github/workflows/house-rules.yml@634fdb6f07d2fc093356ba937e15820097ade477
