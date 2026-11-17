@@ -53,10 +53,10 @@ func main() {
 	changes, err := run(ctx, *dir, *check, time.Now().UTC(), os.Stdout)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "fetch: "+err.Error())
-		os.Exit(1)
+		os.Exit(1) //nolint:gocritic // Exiting the process releases the timeout and all requests; no persistent work is deferred.
 	}
 	if *summary != "" {
-		if err := os.WriteFile(*summary, []byte(markdown(changes)), 0o644); err != nil {
+		if err := os.WriteFile(*summary, []byte(markdown(changes)), 0o644); err != nil { //nolint:gosec // The summary contains public sanctions-list changes and is intended to be readable.
 			fmt.Fprintln(os.Stderr, "fetch: "+err.Error())
 			os.Exit(1)
 		}
@@ -76,18 +76,18 @@ func writeStatus(path, dir, mainDigest string, now time.Time) error {
 	}
 	var files [][]byte
 	for _, name := range denylist.Files {
-		b, err := os.ReadFile(filepath.Join(dir, name))
+		b, err := os.ReadFile(filepath.Join(dir, name)) //nolint:gosec // The operator chooses the list directory; names come from denylist.Files.
 		if err != nil {
 			return err
 		}
 		files = append(files, b)
 	}
 	var prev denylist.Status
-	if b, err := os.ReadFile(path); err == nil {
+	if b, err := os.ReadFile(path); err == nil { //nolint:gosec // The status path is an operator-supplied output file, read to carry its prior status.
 		prev, _ = denylist.ParseChecked(b)
 	}
 	day := now.UTC().Truncate(24 * time.Hour)
-	return os.WriteFile(path, []byte(denylist.Next(prev, day, denylist.Digest(files...), mainDigest).String()+"\n"), 0o644)
+	return os.WriteFile(path, []byte(denylist.Next(prev, day, denylist.Digest(files...), mainDigest).String()+"\n"), 0o644) //nolint:gosec // The published status contains only dates and public list digests.
 }
 
 // change is what a source holds now against its file: the addresses added, with their notes, and removed.
@@ -116,7 +116,7 @@ func run(ctx context.Context, dir string, check bool, now time.Time, out io.Writ
 	var writes []write
 	for i, s := range have {
 		path := filepath.Join(dir, denylist.Files[i])
-		old, err := os.ReadFile(path)
+		old, err := os.ReadFile(path) //nolint:gosec // The operator chooses the directory; the filename comes from denylist.Files.
 		if err != nil {
 			return nil, err
 		}
@@ -138,11 +138,11 @@ func run(ctx context.Context, dir string, check bool, now time.Time, out io.Writ
 			}
 		}
 		if len(c.added)+len(c.removed) == 0 {
-			fmt.Fprintf(out, "%s: the same %d addresses\n", s.Name, len(s.Addresses))
+			fmt.Fprintf(out, "%s: the same %d addresses\n", s.Name, len(s.Addresses)) //nolint:errcheck // Progress output is advisory; source reads and list writes determine success.
 			continue
 		}
 		changes = append(changes, c)
-		fmt.Fprintf(out, "%s: %d added, %d removed\n", s.Name, len(c.added), len(c.removed))
+		fmt.Fprintf(out, "%s: %d added, %d removed\n", s.Name, len(c.added), len(c.removed)) //nolint:errcheck // Progress output is advisory; the returned changes produce the checked summary file.
 		for a, n := range read {
 			if n == "" {
 				read[a] = notes[a]
@@ -160,7 +160,7 @@ func run(ctx context.Context, dir string, check bool, now time.Time, out io.Writ
 		return changes, nil
 	}
 	for _, w := range writes {
-		if err := os.WriteFile(w.path, w.b, 0o644); err != nil {
+		if err := os.WriteFile(w.path, w.b, 0o644); err != nil { //nolint:gosec // Sanctions lists are public files consumed by other readers.
 			return nil, err
 		}
 	}
@@ -321,7 +321,7 @@ func get(ctx context.Context, url string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // ReadAll reports body failures; closing a read-only response is cleanup.
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s: %s", url, resp.Status)
 	}
@@ -348,7 +348,7 @@ func unzipSDN(b []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck // ZIP reads report corruption; closing the in-memory member is cleanup.
 	return io.ReadAll(f)
 }
 
@@ -373,7 +373,7 @@ func readSDN(r io.Reader) (sdnList, error) {
 	root := false
 	for {
 		tok, err := d.Token()
-		if err == io.EOF {
+		if err == io.EOF { //nolint:errorlint // Only the XML decoder's exact end-of-document sentinel is success; wrapped read errors must fail.
 			break
 		}
 		if err != nil {
