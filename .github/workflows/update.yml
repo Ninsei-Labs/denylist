@@ -7,7 +7,9 @@ name: update
 # main's files differ, " main <day> <digest>": the last day they were the sources' own (cmd/fetch -status).
 # A pull request this workflow opens starts no other workflow (GitHub's rule for its token), so the run tests
 # the lists it proposes itself (.github/test.sh, the ci workflow's checks) and records the result on the
-# proposed commit as the commit status "test", the check main requires; a failure also opens the issue.
+# proposed commit as the commit status "test"; a failure also opens the issue. Main also requires
+# "house-rules / check", "workflows", "secrets" and "lint", which only a person's event starts: the code owner
+# who reviews the pull request closes and reopens it, and those checks then run on the proposed commit.
 # GitHub stops a schedule after 60 days without activity in the repository; each run asks it to keep this one
 # on, and a stale status shows if it stopped anyway.
 on:

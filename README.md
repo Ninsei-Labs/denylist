@@ -44,7 +44,9 @@ When a list differs from its source it opens one pull request, or updates the op
 added and removed with its source; nothing merges by itself, and main takes a change only with a code owner's
 review. A pull request opened with the workflow token starts no other workflow, so the run checks the lists it
 proposes (`.github/test.sh`, the checks of every pull request) and records the result on the pull request as
-the `test` check main requires. A new address from the UK or EU list comes with the day it was found as its
+the `test` check. Main also requires `house-rules / check`, `workflows`, `secrets` and `lint`, which start only
+on a person's event: the reviewing code owner closes and reopens the pull request, and those checks run on the
+proposed commit before it can merge. A new address from the UK or EU list comes with the day it was found as its
 note: the reviewer replaces it with the designation it comes from. A source that cannot be read, or lists a
 fifth fewer addresses than its file, fails the run before any file is written and opens an issue: such a drop
 is checked by hand. Every run that read all three sources writes the status above, so a reader sees the check
